@@ -1,11 +1,11 @@
 'use client';
 import {useEffect,useMemo,useState} from 'react';
-import {Search, ExternalLink, ShieldCheck, Sparkles, Bell, TrendingDown, Star, CheckCircle2, Zap, Smartphone, Laptop, Headphones, Home, Shirt, ChevronRight, Menu, Heart, GitCompareArrows} from 'lucide-react';
+import {Search, ExternalLink, ShieldCheck, Sparkles, Bell, TrendingDown, Star, CheckCircle2, Zap, Smartphone, Laptop, Headphones, Home as HomeIcon, Shirt, ChevronRight, Menu, Heart, GitCompareArrows} from 'lucide-react';
 import type {NormalizedProduct} from '../lib/products';
 
 type Result={query:string;live:boolean;products:NormalizedProduct[];analysis:{summary:string;best:string|null;pros:string[];cons:string[];recommendations:{title:string;text:string;id:string}[]};warning?:string};
 const money=(n:number)=>`₹${n.toLocaleString('en-IN')}`;
-const categories=[['Mobiles',Smartphone,'iPhone 17'],['Laptops',Laptop,'Laptop under ₹60000'],['Audio',Headphones,'Sony headphones'],['Home',Home,'Air purifier'],['Fashion',Shirt,'Running shoes']];
+const categories=[['Mobiles',Smartphone,'iPhone 17'],['Laptops',Laptop,'Laptop under ₹60000'],['Audio',Headphones,'Sony headphones'],['Home',HomeIcon,'Air purifier'],['Fashion',Shirt,'Running shoes']];
 const popular=['iPhone 17','Samsung Galaxy S25 256GB','AirPods Pro','Sony WH-1000XM6','Laptop under ₹60000'];
 
 export default function Home(){
@@ -48,6 +48,6 @@ export default function Home(){
    </section>}
    <footer className="footer"><div className="footer-brand"><img src="/pricepilot-logo.png" alt="PricePilot"/><span>Compare. Choose. Save.</span></div><p>Verify final checkout price, seller, warranty and return policy before purchase.</p></footer>
   </div>
-  <div className="bottom-nav"><button onClick={()=>{setR(null);window.scrollTo({top:0,behavior:'smooth'})}}><Search size={18}/><span>Search</span></button><button onClick={()=>document.getElementById('categories')?.scrollIntoView({behavior:'smooth'})}><Home size={18}/><span>Categories</span></button><button onClick={()=>document.getElementById('alerts')?.scrollIntoView({behavior:'smooth'})}><Bell size={18}/><span>Alerts</span></button></div>
+  <div className="bottom-nav"><button onClick={()=>{setR(null);window.scrollTo({top:0,behavior:'smooth'})}}><Search size={18}/><span>Search</span></button><button onClick={()=>document.getElementById('categories')?.scrollIntoView({behavior:'smooth'})}><HomeIcon size={18}/><span>Categories</span></button><button onClick={()=>document.getElementById('alerts')?.scrollIntoView({behavior:'smooth'})}><Bell size={18}/><span>Alerts</span></button></div>
  </main>
 }
