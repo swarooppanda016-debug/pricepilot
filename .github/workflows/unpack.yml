@@ -16,21 +16,33 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Check ZIP
+      - name: Find PricePilot ZIP
+        id: find_zip
         run: |
-          if [ ! -f "pricepilot-v4-commercial.zip" ]; then
-            echo "ZIP file not found."
-            exit 0
+          ZIP=$(find . -maxdepth 1 -type f -name 'pricepilot-*.zip' | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "No PricePilot ZIP found."
+            exit 1
           fi
+
+          echo "Found ZIP: $ZIP"
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
 
       - name: Extract PricePilot
         run: |
+          ZIP="${{ steps.find_zip.outputs.zip }}"
+
           rm -rf extracted
           mkdir extracted
 
-          unzip -q "pricepilot-v4-commercial.zip" -d extracted
+          unzip -q "$ZIP" -d extracted
 
-          echo "Extracted files:"
+          echo "Extraction completed."
+
+      - name: Locate project folder
+        run: |
+          echo "Extracted structure:"
           find extracted -maxdepth 3 -type f | head -100
 
       - name: Copy project files
@@ -40,20 +52,20 @@ jobs:
           FIRST_DIR=$(find extracted -mindepth 1 -maxdepth 1 -type d | head -n 1)
 
           if [ -n "$FIRST_DIR" ]; then
-            echo "Project folder detected: $FIRST_DIR"
             SOURCE="$FIRST_DIR"
+            echo "Project folder detected: $SOURCE"
           fi
 
           cp -a "$SOURCE"/. .
 
       - name: Remove ZIP and temporary files
         run: |
-          rm -f pricepilot-v4-commercial.zip
+          rm -f pricepilot-*.zip
           rm -rf extracted
 
       - name: Show final structure
         run: |
-          echo "Final repository:"
+          echo "Final PricePilot structure:"
           find . -maxdepth 2 -type f \
             ! -path "./.git/*" \
             | sort | head -150
@@ -68,6 +80,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Extract PricePilot project"
+            git commit -m "Update PricePilot project"
             git push
           fi
