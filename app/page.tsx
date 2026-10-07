@@ -13,7 +13,7 @@ export default function Home(){
  useEffect(()=>{try{setWatching(JSON.parse(localStorage.getItem('pricepilot:watches')||'[]'))}catch{}} ,[]);
  const search=async(v=q)=>{if(!v.trim())return;setQ(v);setLoading(true);try{const x=await fetch('/api/search?q='+encodeURIComponent(v));setR(await x.json())}catch{setR(null)}finally{setLoading(false)}};
  const products=useMemo(()=>[...(r?.products??[])].sort((a,b)=>sort==='price'?a.finalPrice-b.finalPrice:sort==='rating'?(b.rating??0)-(a.rating??0):b.valueScore-a.valueScore),[r,sort]);
- function watch(){if(!q.trim()||!target)return;const next=[...new Set([...watching,`${q}|${target}`])];setWatching(next);localStorage.setItem('pricepilot:watches',JSON.stringify(next));setTarget('');}
+ function watch(){if(!q.trim()||!target)return;const next=Array.from(new Set([...watching,`${q}|${target}`]));setWatching(next);localStorage.setItem('pricepilot:watches',JSON.stringify(next));setTarget('');}
  return <main>
   <div className="topline"><div className="wrap topline-inner"><span>🇮🇳 Built for Indian shoppers</span><span>Compare prices · Discover value · Save more</span></div></div>
   <div className="wrap">
