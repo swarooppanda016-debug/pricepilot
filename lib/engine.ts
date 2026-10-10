@@ -78,9 +78,9 @@ function modelFamilyMismatch(query: string, title: string) {
   return q.some(id => {
     const sameNumberDifferentSuffix = t.some(other => {
       const a = id.match(/^(\d+)([a-z]*)$/), b = other.match(/^(\d+)([a-z]*)$/);
-      return !!a && !!b && a[1] === b[1] && a[2] !== b[2];
+      return !!a && !!b && (a[1] ?? '') === (b[1] ?? '') && (a[2] ?? '') !== (b[2] ?? '');
     });
-    const identifierMissing = !t.includes(id) && !sameNumberDifferentSuffix;
+    const identifierMissing = !t.some((other: string) => other === id) && !sameNumberDifferentSuffix;
     return sameNumberDifferentSuffix || identifierMissing;
   });
 }
