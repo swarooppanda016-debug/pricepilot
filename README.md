@@ -52,3 +52,13 @@ Then open http://localhost:3000.
 - No API secrets are included in this source package. Keep `SERPAPI_KEY` configured only in Vercel Environment Variables.
 
 This is heuristic matching, not a guarantee of exact SKU, region, condition or seller authenticity. Test results before production rollout.
+
+
+## V9 strict matching safeguards
+
+- Main-product searches exclude listings classified as accessories; accessory-specific searches keep accessory listings and reject host devices.
+- Different model identifiers in a shared product family (for example iPhone 17 vs iPhone 17e, or iPhone 17 vs iPhone 15) are routed to Similar Alternatives instead of the primary recommendation.
+- Main recommendation selection uses only exact matches or sufficiently strong close variants; alternatives cannot win Best Value.
+- Exact/variant matching thresholds are stricter, and recommendation copy identifies when only close variants are available.
+- Shipping is not claimed to be free merely because a provider omitted a numeric shipping price.
+- Heuristic matching cannot guarantee SKU, seller authenticity, warranty, region, or checkout total. Test in a preview deployment before production.
