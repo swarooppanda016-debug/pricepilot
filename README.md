@@ -24,6 +24,14 @@ npm run dev
 
 Then open http://localhost:3000.
 
+## Matching quality update
+- Filters common accessories from main-product searches (e.g. cases, covers, chargers and screen protectors).
+- Applies a relevance threshold and a variant mismatch penalty before value scoring.
+- Keeps low-match offers from winning the recommendation solely because of rating or discount.
+- Displays product images when supplied by Google Shopping.
+- Shows an explicit no-reliable-matches message instead of presenting weak matches as trustworthy.
+- The match score is heuristic and cannot guarantee exact SKU, condition, seller authenticity or warranty. Verify merchant details and checkout price.
+
 ## Production roadmap
 1. Licensed merchant feeds / affiliate APIs
 2. Exact SKU/variant matching
