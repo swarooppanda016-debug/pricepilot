@@ -33,9 +33,11 @@ export async function GET(req: NextRequest) {
 
   const key = process.env.SERPAPI_KEY;
   if (!key) {
-    const products = normalize(mockProducts, q);
+    const allNormalized = normalize(mockProducts, q);
+    const products = allNormalized.filter(p => p.matchType !== 'alternative');
+    const alternatives = allNormalized.filter(p => p.matchType === 'alternative').map(p => ({ ...p, valueScore: 0 }));
     return NextResponse.json({
-      query: q, live: false, products, analysis: analyze(products, q),
+      query: q, live: false, products, alternatives, analysis: analyze(products, q),
       warning: 'Demo mode. Add SERPAPI_KEY to enable live Google Shopping results.'
     });
   }
@@ -51,13 +53,15 @@ export async function GET(req: NextRequest) {
     const data = await response.json();
     if (data.error) throw new Error('Shopping provider returned an API error');
     const rawProducts = parseShopping(data, q);
-    const products = normalize(rawProducts, q);
+    const allNormalized = normalize(rawProducts, q);
+    const products = allNormalized.filter(p => p.matchType !== 'alternative');
+    const alternatives = allNormalized.filter(p => p.matchType === 'alternative').map(p => ({ ...p, valueScore: 0 }));
     return NextResponse.json({
-      query: q, live: true, products, offersReceived: rawProducts.length,
+      query: q, live: true, products, alternatives, offersReceived: rawProducts.length,
       offersCompared: products.length,
       analysis: analyze(products, q),
       provider: 'Google Shopping via SerpApi',
-      ...(products.length === 0 ? { warning: 'Live data arrived, but no sufficiently relevant products passed matching checks. Try the exact model name. Accessory and weak matches were excluded.' } : {})
+      ...(products.length === 0 ? { warning: alternatives.length ? 'No exact or close main-product matches passed the confidence checks. Similar models are shown separately below.' : 'Live data arrived, but no sufficiently relevant products passed matching checks. Try the exact model name. Accessories and weak matches were excluded.' } : {})
     });
   } catch {
     const products = normalize(mockProducts, q);

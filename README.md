@@ -41,3 +41,14 @@ Then open http://localhost:3000.
 6. Coupons and checkout-price normalization
 7. Review summarization with citations
 8. Affiliate tracking and merchant analytics
+
+
+## V8 matching safeguards
+
+- Model identifier mismatches (for example, iPhone 17 vs iPhone 17e) are not included in the main recommendation pool.
+- Related/different models are returned separately as `alternatives` and labelled clearly in the UI.
+- Storage capacity mismatch is treated as a variant, not an exact match.
+- Best-value and cheapest labels distinguish exact-model results from close variants.
+- No API secrets are included in this source package. Keep `SERPAPI_KEY` configured only in Vercel Environment Variables.
+
+This is heuristic matching, not a guarantee of exact SKU, region, condition or seller authenticity. Test results before production rollout.

@@ -61,47 +61,88 @@ function variantPenalty(query: string, title: string) {
   if (qColorsFound.length && !qColorsFound.some(x => t.split(' ').includes(x))) penalty += 8;
   return penalty;
 }
+function modelIdentifiers(s: string) {
+  const normalized = clean(s);
+  // Model identifiers with digits are especially important: iPhone 17 vs 17e,
+  // Galaxy S25 vs S24, and WH-1000XM6 vs XM5 must not be merged.
+  return normalized.match(/\b(?:[a-z]{0,5}\d{1,5}[a-z]{0,3}|\d{1,5}[a-z]{0,3})\b/g) ?? [];
+}
+function modelFamilyMismatch(query: string, title: string) {
+  const q = modelIdentifiers(query), t = modelIdentifiers(title);
+  if (!q.length || !t.length) return false;
+  // Compare identifiers only where the same product family is present.
+  const qClean = clean(query), tClean = clean(title);
+  const familyWords = ['iphone','galaxy','pixel','ipad','macbook','airpods','wh'];
+  const sharedFamily = familyWords.some(w => qClean.includes(w) && tClean.includes(w));
+  if (!sharedFamily) return false;
+  return q.some(id => {
+    const sameNumberDifferentSuffix = t.some(other => {
+      const a = id.match(/^(\d+)([a-z]*)$/), b = other.match(/^(\d+)([a-z]*)$/);
+      return !!a && !!b && a[1] === b[1] && a[2] !== b[2];
+    });
+    const identifierMissing = !t.includes(id) && !sameNumberDifferentSuffix;
+    return sameNumberDifferentSuffix || identifierMissing;
+  });
+}
+function capacityMismatch(query: string, title: string) {
+  const q = clean(query), t = clean(title);
+  const capacities = ['64gb','128gb','256gb','512gb','1tb','2tb'];
+  const qCaps = capacities.filter(x => q.includes(x));
+  const tCaps = capacities.filter(x => t.includes(x));
+  return qCaps.length > 0 && (!tCaps.length || !qCaps.some(x => tCaps.includes(x)));
+}
+function classifyMatch(query: string, title: string, score: number): 'exact'|'variant'|'alternative' {
+  if (modelFamilyMismatch(query, title)) return 'alternative';
+  if (capacityMismatch(query, title)) return 'variant';
+  const q = clean(query), t = clean(title);
+  const qColors = ['black','white','blue','green','pink','silver','gold','titanium','purple','red'];
+  if (qColors.some(c => q.split(' ').includes(c)) && !qColors.some(c => q.split(' ').includes(c) && t.split(' ').includes(c))) return 'variant';
+  return score >= 70 ? 'exact' : 'variant';
+}
 export function normalize(items: Product[], query: string): NormalizedProduct[] {
-  const valid = items
+  return items
     .filter(x => x.price > 0 && !isAccessory(x.title, query))
     .map(x => {
       const finalPrice = x.price + (x.shipping || 0);
       const discountPct = x.mrp && x.mrp > x.price ? Math.round((1 - x.price / x.mrp) * 100) : 0;
       const rawMatch = matchScore(query, x.title);
-      const match = Math.max(0, rawMatch - variantPenalty(query, x.title));
+      const matchType = classifyMatch(query, x.title, rawMatch);
+      const penalty = variantPenalty(query, x.title) + (matchType === 'alternative' ? 35 : 0);
+      const match = Math.max(0, rawMatch - penalty);
       const rating = x.rating || 0;
       const reviewConfidence = Math.min(1, Math.log10((x.reviews || 0) + 1) / 4);
-      // Don't let rating/discount overpower a weak product match.
-      const valueScore = match < 45 ? 0 : Math.round(Math.max(0, Math.min(100,
+      // Price/reviews cannot overpower poor identity matching.
+      const valueScore = match < 45 || matchType === 'alternative' ? 0 : Math.round(Math.max(0, Math.min(100,
         match * 0.58 + (rating / 5) * 20 + reviewConfidence * 7 + Math.min(discountPct, 50) / 50 * 8 + (x.shipping === 0 ? 3 : 0)
       )));
-      return { ...x, finalPrice, discountPct, matchScore: match, valueScore };
+      return { ...x, finalPrice, discountPct, matchScore: match, valueScore, matchType };
     })
-    .filter(x => x.matchScore >= 35);
-  return valid.sort((a, b) => b.valueScore - a.valueScore || a.finalPrice - b.finalPrice);
+    .filter(x => x.matchType === 'alternative' || x.matchScore >= 35)
+    .sort((a, b) => b.valueScore - a.valueScore || a.finalPrice - b.finalPrice);
 }
 export function analyze(items: NormalizedProduct[], q: string) {
   if (!items.length) return {
-    summary: `We couldn't find reliable matching offers for “${q}”. Try the full model name or remove a color/storage detail.`,
+    summary: `We couldn't find reliable exact or close variant offers for “${q}”. Similar models may be available separately. Try the full model name or remove a storage/color detail.`,
     best: null as string | null, pros: [] as string[],
-    cons: ['No sufficiently close product matches were found.','Try a more specific model name; verify variant, seller and checkout price.'],
+    cons: ['No sufficiently close product matches were found.','Different models are not ranked as exact matches.','Verify model, seller, warranty and checkout price before buying.'],
     recommendations: [] as {title:string;text:string;id:string}[]
   };
-  const reliable = items.filter(x => x.matchScore >= 55);
-  const pool = reliable.length ? reliable : items;
-  const best = pool[0];
-  const cheapest = [...pool].sort((a,b) => a.finalPrice - b.finalPrice)[0];
-  const avg = Math.round(pool.reduce((s,x) => s + x.finalPrice, 0) / pool.length);
-  const savings = Math.max(0, avg - cheapest.finalPrice);
+  const exact = items.filter(x => x.matchType === 'exact' && x.matchScore >= 70);
+  const pool = exact.length ? exact : items.filter(x => x.matchType === 'variant' && x.matchScore >= 45);
+  const ranked = pool.length ? pool : items;
+  const best = [...ranked].sort((a,b) => b.valueScore-a.valueScore || a.finalPrice-b.finalPrice)[0];
+  const cheapest = [...ranked].sort((a,b) => a.finalPrice-b.finalPrice)[0];
+  const avg = Math.round(ranked.reduce((sum,x) => sum+x.finalPrice,0)/ranked.length);
+  const savings = Math.max(0, avg-cheapest.finalPrice);
   return {
-    summary: `${best.store} has the strongest overall match and value score among ${pool.length} relevant offer${pool.length===1?'':'s'}. Lowest listed price: ₹${cheapest.finalPrice.toLocaleString('en-IN')} at ${cheapest.store}; average listed price among these offers: ₹${avg.toLocaleString('en-IN')}.`,
+    summary: `${exact.length ? 'Exact-model offers are available' : 'No high-confidence exact-model offer was found; these are close variants'}. ${best.store} has the strongest ${exact.length ? 'exact-match' : 'variant'} value score. Lowest listed price in this group: ₹${cheapest.finalPrice.toLocaleString('en-IN')} at ${cheapest.store}; average: ₹${avg.toLocaleString('en-IN')}.`,
     best: best.id,
-    pros: [`Compared ${pool.length} relevant seller offer${pool.length===1?'':'s'}`, `Best-value score: ${best.valueScore}/100`, `Lowest listed price is ₹${cheapest.finalPrice.toLocaleString('en-IN')}`],
-    cons: ['Prices, stock, coupons and delivery can change at checkout','Seller, warranty and return terms may differ','A matching score is an estimate, not a guarantee of identical SKU or condition'],
+    pros: [`Compared ${ranked.length} ${exact.length ? 'exact/strong' : 'close-variant'} offers`,`Best-value score: ${best.valueScore}/100`,`Lowest listed price in this group is ₹${cheapest.finalPrice.toLocaleString('en-IN')}`],
+    cons: ['Prices, coupons, stock and delivery can change at checkout','Seller, warranty and return terms may differ','Match score is an estimate, not proof of identical SKU or condition'],
     recommendations: [
-      {title:'🏆 Best overall match', text:`${best.store} — ₹${best.finalPrice.toLocaleString('en-IN')}`, id:best.id},
-      {title:'💰 Lowest listed price', text:`${cheapest.store} — ₹${cheapest.finalPrice.toLocaleString('en-IN')}`, id:cheapest.id},
-      ...pool.filter(x=>x.id!==best.id&&x.id!==cheapest.id).slice(0,2).map(x=>({title:'🔎 Alternative',text:`${x.store} — ₹${x.finalPrice.toLocaleString('en-IN')}`,id:x.id}))
+      {title: exact.length ? '🏆 Best exact-model value' : '🏆 Best close variant', text:`${best.store} — ₹${best.finalPrice.toLocaleString('en-IN')}`, id:best.id},
+      {title:'💰 Lowest listed price in this group', text:`${cheapest.store} — ₹${cheapest.finalPrice.toLocaleString('en-IN')}`, id:cheapest.id},
+      ...ranked.filter(x=>x.id!==best.id&&x.id!==cheapest.id).slice(0,2).map(x=>({title:'🔎 Alternative',text:`${x.store} — ₹${x.finalPrice.toLocaleString('en-IN')}`,id:x.id}))
     ]
   };
 }

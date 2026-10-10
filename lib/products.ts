@@ -6,6 +6,7 @@ export type Product = {
 
 export type NormalizedProduct = Product & {
   finalPrice: number; discountPct: number; matchScore: number; valueScore: number;
+  matchType: 'exact' | 'variant' | 'alternative';
 };
 
 export const mockProducts: Product[] = [
