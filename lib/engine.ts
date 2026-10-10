@@ -61,26 +61,28 @@ function variantPenalty(query: string, title: string) {
   if (qColorsFound.length && !qColorsFound.some(x => t.split(' ').includes(x))) penalty += 8;
   return penalty;
 }
-
 function modelIdentifiers(s: string) {
   const normalized = clean(s);
+  // Model identifiers with digits are especially important: iPhone 17 vs 17e,
+  // Galaxy S25 vs S24, and WH-1000XM6 vs XM5 must not be merged.
   return normalized.match(/\b(?:[a-z]{0,5}\d{1,5}[a-z]{0,3}|\d{1,5}[a-z]{0,3})\b/g) ?? [];
 }
-const FAMILIES = ['iphone','galaxy','pixel','ipad','macbook','airpods','wh','playstation','xbox','thinkpad','vivobook','redmi','poco','oneplus'];
-function familyPresent(s: string) {
-  const v = clean(s);
-  return FAMILIES.find(f => (` ${v} `).includes(` ${f} `)) ?? '';
-}
 function modelFamilyMismatch(query: string, title: string) {
-  const q = clean(query), t = clean(title);
-  const qFamily = familyPresent(q), tFamily = familyPresent(t);
-  if (qFamily && tFamily && qFamily !== tFamily) return true;
-  if (!qFamily || !tFamily || qFamily !== tFamily) return false;
-  const qIds = modelIdentifiers(q).filter(id => !/^(64|128|256|512|1024|2048)(gb|tb)?$/.test(id));
-  const tIds = modelIdentifiers(t).filter(id => !/^(64|128|256|512|1024|2048)(gb|tb)?$/.test(id));
-  if (!qIds.length) return false;
-  // A model identifier must be present exactly; 17 and 17e are different models.
-  return qIds.some(id => !tIds.includes(id));
+  const q = modelIdentifiers(query), t = modelIdentifiers(title);
+  if (!q.length || !t.length) return false;
+  // Compare identifiers only where the same product family is present.
+  const qClean = clean(query), tClean = clean(title);
+  const familyWords = ['iphone','galaxy','pixel','ipad','macbook','airpods','wh'];
+  const sharedFamily = familyWords.some(w => qClean.includes(w) && tClean.includes(w));
+  if (!sharedFamily) return false;
+  return q.some(id => {
+    const sameNumberDifferentSuffix = t.some(other => {
+      const a = id.match(/^(\d+)([a-z]*)$/), b = other.match(/^(\d+)([a-z]*)$/);
+      return !!a && !!b && a[1] === b[1] && a[2] !== b[2];
+    });
+    const identifierMissing = !t.includes(id) && !sameNumberDifferentSuffix;
+    return sameNumberDifferentSuffix || identifierMissing;
+  });
 }
 function capacityMismatch(query: string, title: string) {
   const q = clean(query), t = clean(title);
@@ -89,33 +91,17 @@ function capacityMismatch(query: string, title: string) {
   const tCaps = capacities.filter(x => t.includes(x));
   return qCaps.length > 0 && (!tCaps.length || !qCaps.some(x => tCaps.includes(x)));
 }
-function colorMismatch(query: string, title: string) {
-  const q = clean(query), t = clean(title);
-  const colors = ['black','white','blue','green','pink','silver','gold','titanium','purple','red','gray','grey','midnight','starlight'];
-  const requested = colors.filter(c => q.split(' ').includes(c));
-  return requested.length > 0 && !requested.some(c => t.split(' ').includes(c));
-}
-function queryRequestsAccessory(query: string) {
-  return ACCESSORY_TERMS.some(term => containsPhrase(query, term));
-}
-function titleIsMainProductForAccessoryQuery(title: string, query: string) {
-  // When the user searches for an accessory, keep accessory listings and reject the host device itself.
-  if (!queryRequestsAccessory(query)) return false;
-  const q = clean(query), t = clean(title);
-  const requested = ACCESSORY_TERMS.filter(term => containsPhrase(q, term));
-  return requested.length > 0 && !requested.some(term => containsPhrase(t, term));
-}
 function classifyMatch(query: string, title: string, score: number): 'exact'|'variant'|'alternative' {
   if (modelFamilyMismatch(query, title)) return 'alternative';
-  if (capacityMismatch(query, title) || colorMismatch(query, title)) return 'variant';
-  const qFamily = familyPresent(query), tFamily = familyPresent(title);
-  if (qFamily && tFamily && qFamily !== tFamily) return 'alternative';
-  return score >= 62 ? 'exact' : 'variant';
+  if (capacityMismatch(query, title)) return 'variant';
+  const q = clean(query), t = clean(title);
+  const qColors = ['black','white','blue','green','pink','silver','gold','titanium','purple','red'];
+  if (qColors.some(c => q.split(' ').includes(c)) && !qColors.some(c => q.split(' ').includes(c) && t.split(' ').includes(c))) return 'variant';
+  return score >= 70 ? 'exact' : 'variant';
 }
 export function normalize(items: Product[], query: string): NormalizedProduct[] {
-  const accessoryQuery = queryRequestsAccessory(query);
   return items
-    .filter(x => x.price > 0 && (accessoryQuery ? !titleIsMainProductForAccessoryQuery(x.title, query) : !isAccessory(x.title, query)))
+    .filter(x => x.price > 0 && !isAccessory(x.title, query))
     .map(x => {
       const finalPrice = x.price + (x.shipping || 0);
       const discountPct = x.mrp && x.mrp > x.price ? Math.round((1 - x.price / x.mrp) * 100) : 0;
@@ -125,37 +111,38 @@ export function normalize(items: Product[], query: string): NormalizedProduct[] 
       const match = Math.max(0, rawMatch - penalty);
       const rating = x.rating || 0;
       const reviewConfidence = Math.min(1, Math.log10((x.reviews || 0) + 1) / 4);
-      const eligible = matchType !== 'alternative' && match >= 45;
-      const valueScore = !eligible ? 0 : Math.round(Math.max(0, Math.min(100,
+      // Price/reviews cannot overpower poor identity matching.
+      const valueScore = match < 45 || matchType === 'alternative' ? 0 : Math.round(Math.max(0, Math.min(100,
         match * 0.58 + (rating / 5) * 20 + reviewConfidence * 7 + Math.min(discountPct, 50) / 50 * 8 + (x.shipping === 0 ? 3 : 0)
       )));
       return { ...x, finalPrice, discountPct, matchScore: match, valueScore, matchType };
     })
-    .filter(x => x.matchType === 'alternative' || x.matchScore >= 45)
-    .sort((a, b) => (a.matchType === 'alternative' ? 1 : 0) - (b.matchType === 'alternative' ? 1 : 0) || b.valueScore - a.valueScore || a.finalPrice - b.finalPrice);
+    .filter(x => x.matchType === 'alternative' || x.matchScore >= 35)
+    .sort((a, b) => b.valueScore - a.valueScore || a.finalPrice - b.finalPrice);
 }
 export function analyze(items: NormalizedProduct[], q: string) {
-  const exact = items.filter(x => x.matchType === 'exact' && x.matchScore >= 70);
-  const variants = items.filter(x => x.matchType === 'variant' && x.matchScore >= 45);
-  const ranked = exact.length ? exact : variants;
-  if (!ranked.length) return {
-    summary: `We couldn't find reliable exact-model or close-variant offers for “${q}”. Different models may be available in Similar Alternatives below. Try the full model name or remove a storage/color detail.`,
+  if (!items.length) return {
+    summary: `We couldn't find reliable exact or close variant offers for “${q}”. Similar models may be available separately. Try the full model name or remove a storage/color detail.`,
     best: null as string | null, pros: [] as string[],
-    cons: ['No sufficiently close product matches were found.','Similar models are excluded from the main recommendation.','Verify model, seller, warranty and checkout price before buying.'],
+    cons: ['No sufficiently close product matches were found.','Different models are not ranked as exact matches.','Verify model, seller, warranty and checkout price before buying.'],
     recommendations: [] as {title:string;text:string;id:string}[]
   };
+  const exact = items.filter(x => x.matchType === 'exact' && x.matchScore >= 70);
+  const pool = exact.length ? exact : items.filter(x => x.matchType === 'variant' && x.matchScore >= 45);
+  const ranked = pool.length ? pool : items;
   const best = [...ranked].sort((a,b) => b.valueScore-a.valueScore || a.finalPrice-b.finalPrice)[0];
   const cheapest = [...ranked].sort((a,b) => a.finalPrice-b.finalPrice)[0];
   const avg = Math.round(ranked.reduce((sum,x) => sum+x.finalPrice,0)/ranked.length);
+  const savings = Math.max(0, avg-cheapest.finalPrice);
   return {
-    summary: `${exact.length ? 'Exact-model offers are available' : 'No high-confidence exact-model offer was found; showing close variants'}. ${best.store} has the strongest ${exact.length ? 'exact-model' : 'variant'} value score. Lowest listed price in this group: ₹${cheapest.finalPrice.toLocaleString('en-IN')} at ${cheapest.store}; average: ₹${avg.toLocaleString('en-IN')}. Shipping may not be included unless explicitly provided.`,
+    summary: `${exact.length ? 'Exact-model offers are available' : 'No high-confidence exact-model offer was found; these are close variants'}. ${best.store} has the strongest ${exact.length ? 'exact-match' : 'variant'} value score. Lowest listed price in this group: ₹${cheapest.finalPrice.toLocaleString('en-IN')} at ${cheapest.store}; average: ₹${avg.toLocaleString('en-IN')}.`,
     best: best.id,
-    pros: [`Compared ${ranked.length} ${exact.length ? 'exact-model' : 'close-variant'} offers`,`Best-value score: ${best.valueScore}/100`,`Lowest listed price in this group is ₹${cheapest.finalPrice.toLocaleString('en-IN')}`],
-    cons: ['Prices, coupons, stock and delivery can change at checkout','Seller, warranty and return terms may differ','Match score is heuristic and does not prove identical SKU or condition'],
+    pros: [`Compared ${ranked.length} ${exact.length ? 'exact/strong' : 'close-variant'} offers`,`Best-value score: ${best.valueScore}/100`,`Lowest listed price in this group is ₹${cheapest.finalPrice.toLocaleString('en-IN')}`],
+    cons: ['Prices, coupons, stock and delivery can change at checkout','Seller, warranty and return terms may differ','Match score is an estimate, not proof of identical SKU or condition'],
     recommendations: [
-      {title: exact.length ? '🏆 Best exact-model value' : '🏆 Best close-variant value', text:`${best.store} — ₹${best.finalPrice.toLocaleString('en-IN')}`, id:best.id},
+      {title: exact.length ? '🏆 Best exact-model value' : '🏆 Best close variant', text:`${best.store} — ₹${best.finalPrice.toLocaleString('en-IN')}`, id:best.id},
       {title:'💰 Lowest listed price in this group', text:`${cheapest.store} — ₹${cheapest.finalPrice.toLocaleString('en-IN')}`, id:cheapest.id},
-      ...ranked.filter(x=>x.id!==best.id&&x.id!==cheapest.id).slice(0,2).map(x=>({title:'🔎 Exact/variant offer',text:`${x.store} — ₹${x.finalPrice.toLocaleString('en-IN')}`,id:x.id}))
+      ...ranked.filter(x=>x.id!==best.id&&x.id!==cheapest.id).slice(0,2).map(x=>({title:'🔎 Alternative',text:`${x.store} — ₹${x.finalPrice.toLocaleString('en-IN')}`,id:x.id}))
     ]
   };
 }
